@@ -1,9 +1,32 @@
+// Функция очистки всего экрана (заполняет всё пробелами)
+void clear_screen(void) {
+    volatile char* video_memory = (volatile char*)0xB8000;
+    // На экране 80x25 = 2000 символов. Каждый символ — 2 байта. Всего 4000 байт.
+    for (int i = 0; i < 80 * 25; i++) {
+        video_memory[i * 2] = ' ';       // Символ пробела
+        video_memory[i * 2 + 1] = 0x07;   // Серый цвет на черном фоне (стандартный)
+    }
+}
+
+// Функция для вывода текста в терминальном стиле (в самый верх экрана)
+void print_string(const char* str, int row, int col, char color) {
+    volatile char* video_memory = (volatile char*)0xB8000;
+    int offset = (row * 80 + col) * 2;
+    
+    int i = 0;
+    while (str[i] != '\0') {
+        video_memory[offset] = str[i];
+        video_memory[offset + 1] = color;
+        offset += 2;
+        i++;
+    }
+}
+
 void kernel_main(void) {
     volatile char* video_memory = (volatile char*)0xB8000;
     
-    // --- СТРОКА 1: Welcome to KrexOS v0.0.1! ---
-    // Строка 6 экрана, самый левый край (Column = 0).
-    // Формула: (6 * 80 + 0) * 2 = 960
+    // --- 1. ТВОЙ КАСТОМНЫЙ ЭКРАН ЗАГРУЗКИ ---
+    // (Код, который затирает надпись "Booting from Floppy...")
     int offset1 = 1120; 
     char c1 = 0x0A; // Ярко-зелёный
 
@@ -33,9 +56,6 @@ void kernel_main(void) {
     video_memory[offset1 + 46] = '1';  video_memory[offset1 + 47] = c1;
     video_memory[offset1 + 48] = '!';  video_memory[offset1 + 49] = c1;
 
-    // --- СТРОКА 2: Powered by Krexbow ---
-    // Строка 7 экрана (прямо под первой), самый левый край (Column = 0).
-    // Формула: (7 * 80 + 0) * 2 = 1120
     int offset2 = 1280; 
     char c2 = 0x0F; // Ярко-белый
 
@@ -58,8 +78,28 @@ void kernel_main(void) {
     video_memory[offset2 + 32] = 'o';  video_memory[offset2 + 33] = c2;
     video_memory[offset2 + 34] = 'w';  video_memory[offset2 + 35] = c2;
 
+
+    // --- 2. ЗАДЕРЖКА ~5 СЕКУНД ---
+    // volatile не дает компилятору выкинуть пустой цикл при оптимизации.
+    // Если задержка покажется слишком быстрой или долгой, просто измени конечное число.
+    volatile unsigned long long delay;
+    for (delay = 0; delay < 3000000000ULL; delay++) {
+        // Процессор просто считает до трех миллиардов
+    }
+
+
+    // --- 3. ПЕРЕХОД В ТЕРМИНАЛ ---
+    clear_screen(); // Стираем к чертям приветствие загрузки
+
+    // Выводим шапку нашей консоли на строке 0
+    print_string("KrexOS Kernel Interactive Shell [v0.0.1]", 0, 0, 0x0E); // Жёлтый текст
+    print_string("Type 'help' for a list of commands.", 1, 0, 0x07);        // Серый текст
+    
+    // Приглашение к вводу на строке 3
+    print_string("krexos# _", 3, 0, 0x0A); // Зелёное приглашение с курсором
+
     while (1) {
-        
+        // Мертвая петля. Экран застынет в режиме терминала.
     }
 }
 
