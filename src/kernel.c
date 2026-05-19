@@ -1,9 +1,4 @@
-// Чтение из порта клавиатуры
-unsigned char inb(unsigned short port) {
-    unsigned char result;
-    asm volatile("inb %1, %0" : "=a"(result) : "Nd"(port));
-    return result;
-}
+#include "ata.h"
 
 // Очистка экрана
 void clear_screen(void) {
@@ -136,11 +131,12 @@ void read_line(char* buffer, int max_len, int row, int start_col, int mask_input
 void kernel_main(void) {
     clear_screen();
     
-    // --- ИСПРАВЛЕННЫЙ ВЫВОД ЗАСТАВКИ (ЧЕРЕЗ КОРРЕКТНЫЕ ФУНКЦИИ БЕЗ СДВИГОВ ПАМЯТИ) ---
+    // Инициализируем наш контроллер жесткого диска ATA на старте
+    ata_identify();
+    
+    // --- ВЫВОД ЗАСТАВКИ ---
     print_string("Welcome to KrexOS v0.0.1!", 10, 26, 0x0A); // Яркий зеленый
     print_string("Powered by Krexbow", 12, 29, 0x0F);       // Яркий белый
-    
-    // Вывод приглашения нажать ENTER точно по центру внизу заставки
     print_string("Press ENTER to start registration...", 16, 21, 0x0E); // Желтый
 
     // Ожидание нажатия ENTER перед регистрацией
@@ -257,11 +253,13 @@ void kernel_main(void) {
                             if (str_compare(command_buffer, "HELP")) {
                                 print_string("Available commands:", terminal_row, 0, 0x0E);
                                 terminal_row++;
-                                print_string("  HELP  - Show this list", terminal_row, 0, 0x0F);
+                                print_string("  HELP   - Show this list", terminal_row, 0, 0x0F);
                                 terminal_row++;
-                                print_string("  CLEAR - Clear screen", terminal_row, 0, 0x0F);
+                                print_string("  CLEAR  - Clear screen", terminal_row, 0, 0x0F);
                                 terminal_row++;
-                                print_string("  WHOAMI- Show current logged user", terminal_row, 0, 0x0F);
+                                print_string("  WHOAMI - Show current logged user", terminal_row, 0, 0x0F);
+                                terminal_row++;
+                                print_string("  DISK   - Check Hard Disk Drive info", terminal_row, 0, 0x0F);
                             } 
                             else if (str_compare(command_buffer, "CLEAR")) {
                                 clear_screen(); 
@@ -271,13 +269,16 @@ void kernel_main(void) {
                                 print_string("Logged in as: ", terminal_row, 0, 0x0B);
                                 print_string(registered_user, terminal_row, 14, 0x0F);
                             }
+                            else if (str_compare(command_buffer, "DISK")) {
+                                cmd_disk(&terminal_row); // Вызываем наш новый модуль диска!
+                            }
                             else {
                                 print_string("KrexOS: command not found: ", terminal_row, 0, 0x0C);
                                 print_string(command_buffer, terminal_row, 27, 0x0C);
                             }
                             terminal_row++;
                         }
-
+                        
                         if (terminal_row > 23) { clear_screen(); terminal_row = 1; }
                         
                         print_string(registered_user, terminal_row, 0, 0x0A);
