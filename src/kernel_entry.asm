@@ -1,8 +1,9 @@
 [bits 32]
-[extern _kernel_main] ; Ссылаемся на функцию из kernel.c
+global __start        ; Два подчеркивания для win32 линкера
+global _start         ; На всякий случай оставляем и одно
+extern _kernel_main   ; Одно подчеркивание перед вашей Си-функцией
 
-global _start
+__start:
 _start:
-    call _kernel_main ; Жестко вызываем Си
-    jmp $             ; Зависаем, если Си вернул управление
-
+    call _kernel_main ; Вызываем главную функцию ядра
+    jmp $             ; Если ядро выйдет из цикла, зависаем тут
