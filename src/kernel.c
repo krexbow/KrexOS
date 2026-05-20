@@ -1,4 +1,5 @@
 #include "ata.h"
+#include "fs.h"
 
 // --- СИСТЕМНЫЕ ФУНКЦИИ И ОЧИСТКА ЭКРАНА ---
 void clear_screen(void) {
@@ -78,12 +79,18 @@ static char registered_password[32] = "";
 static char input_user[32];
 static char input_password[32];
 static char command_buffer[64];
-static uint8_t disk_buffer[512]; 
 
 // Глобальные статические буферы для парсинга команд в шелле
 static char cmd[32];
 static char arg1[32];
 static char arg2[64];
+
+// Прослойка вывода для fs.c, использующая твои экранные координаты
+void fs_print_wrapper(const char* str, int* row) {
+    print_string(str, *row, 0, 0x0F);
+    (*row)++;
+    if (*row >= 24) { clear_screen(); *row = 1; }
+}
 
 // --- ФУНКЦИЯ ПОСТРОЧНОГО ВВОДА ---
 void read_line(char* buffer, int max_len, int row, int start_col, int mask_input) {
@@ -161,7 +168,6 @@ void read_line(char* buffer, int max_len, int row, int start_col, int mask_input
                         }
                     }
                 } else {
-                    // ИСПРАВЛЕНИЕ: Если клавиша отпущена, сбрасываем скан-код для возможности повторного ввода
                     last_scancode = 0;
                 }
             }
@@ -267,7 +273,7 @@ void kernel_main(void) {
                 last_scancode = scancode;
 
                 if (!(scancode & 0x80)) { 
-                    if (scancode == 0x1C) { // НАЖАТИЕ ENTER В ШЕЛЛЕ
+                    if (scancode == 0x1C) { // ENTER
                         print_char(' ', terminal_row, cursor_col, 0x07); 
                         command_buffer[cmd_index] = '\0'; 
 
@@ -275,7 +281,7 @@ void kernel_main(void) {
                         if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
 
                         if (cmd_index > 0) {
-                            // Очищаем наши статические буферы перед новым парсингом
+                            // Очищаем буферы
                             for(int i = 0; i < 32; i++) { cmd[i] = 0; arg1[i] = 0; }
                             for(int i = 0; i < 64; i++) { arg2[i] = 0; }
                             
@@ -293,13 +299,17 @@ void kernel_main(void) {
                                 
                                 print_string("  WHOAMI               - Show current logged user", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
-                                
-                                print_string("  READSEC [sector]     - Read raw sector data from HDD", terminal_row++, 0, 0x0F);
+
+                                print_string("  CREATE [name] [text] - Create file with text on VFS", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
-                                
-                                print_string("  WRITESEC [sec] [txt] - Write word to custom sector", terminal_row++, 0, 0x0F);
-                                // ИСПРАВЛЕНИЕ: Дополнительная проверка в конце команды HELP
+
+                                print_string("  CAT [name]           - Display file content", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+
+                                print_string("  DEL [name]           - Delete file from VFS", terminal_row++, 0, 0x0F);
+                                if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+
+                                print_string("  LS                   - List files on drive C", terminal_row, 0, 0x0F);
                             } 
                             else if (str_compare(cmd, "CLEAR")) {
                                 clear_screen(); 
@@ -309,37 +319,44 @@ void kernel_main(void) {
                                 print_string("Logged in as: ", terminal_row, 0, 0x0B);
                                 print_string(registered_user, terminal_row, 14, 0x0F);
                             }
-                            else if (str_compare(cmd, "READSEC")) {
-                                uint32_t sector = 0;
-                                if (arg1[0] != '\0') sector = parse_int(arg1);
-                                print_string("Reading LBA sector ", terminal_row, 0, 0x0B);
-                                ata_read_sector(sector, disk_buffer); 
-                                terminal_row++;
-                                if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
-                                char data_dump[9];
-                                for(int s = 0; s < 8; s++) data_dump[s] = disk_buffer[s] ? disk_buffer[s] : '?';
-                                data_dump[8] = '\0';
-                                print_string(data_dump, terminal_row, 0, 0x0F);
-                            }
-                            else if (str_compare(cmd, "WRITESEC")) {
+                            // --- КОМАНДЫ ФАЙЛОВОЙ СИСТЕМЫ ---
+                            else if (str_compare(cmd, "CREATE")) {
                                 if (arg1[0] == '\0' || arg2[0] == '\0') {
-                                    print_string("Usage: WRITESEC [sector_num] [word]", terminal_row, 0, 0x0C);
+                                    print_string("Usage: CREATE [filename] [text]", terminal_row, 0, 0x0C);
                                 } else {
-                                    uint32_t sector = parse_int(arg1);
-                                    
-                                    // ИСПРАВЛЕНИЕ: Защита системных секторов (где лежит ядро) от перезаписи
-                                    if (sector < 40) {
-                                        print_string("Error: Sectors 0-39 are protected (System Code)!", terminal_row, 0, 0x0C);
+                                    if (fs_create_file(arg1, arg2)) {
+                                        print_string("Success: File created!", terminal_row, 0, 0x0A);
                                     } else {
-                                        for (int i = 0; i < 512; i++) disk_buffer[i] = 0;
-                                        int len = 0;
-                                        while (arg2[len] != '\0' && len < 512) { disk_buffer[len] = arg2[len]; len++; }
-                                        ata_write_sector(sector, disk_buffer);
-                                        terminal_row++;
-                                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
-                                        print_string("Success!", terminal_row, 0, 0x0A);
+                                        print_string("Error: No space or file already exists.", terminal_row, 0, 0x0C);
                                     }
                                 }
+                            }
+                            else if (str_compare(cmd, "CAT")) {
+                                if (arg1[0] == '\0') {
+                                    print_string("Usage: CAT [filename]", terminal_row, 0, 0x0C);
+                                } else {
+                                    char file_view_buf[512];
+                                    if (fs_read_file(arg1, file_view_buf)) {
+                                        print_string(file_view_buf, terminal_row, 0, 0x0F);
+                                    } else {
+                                        print_string("Error: File not found.", terminal_row, 0, 0x0C);
+                                    }
+                                }
+                            }
+                            else if (str_compare(cmd, "DEL")) {
+                                if (arg1[0] == '\0') {
+                                    print_string("Usage: DEL [filename]", terminal_row, 0, 0x0C);
+                                } else {
+                                    if (fs_delete_file(arg1)) {
+                                        print_string("Success: File deleted.", terminal_row, 0, 0x0A);
+                                    } else {
+                                        print_string("Error: File not found.", terminal_row, 0, 0x0C);
+                                    }
+                                }
+                            }
+                            else if (str_compare(cmd, "LS")) {
+                                fs_list_files_internal(&terminal_row);
+                                terminal_row--; // Компенсируем инкремент цикла
                             }
                             else {
                                 print_string("Unknown command: ", terminal_row, 0, 0x0C);
@@ -364,7 +381,7 @@ void kernel_main(void) {
                             cmd_index--; 
                         }
                     }
-                    else { // ОБЫЧНЫЙ НАБОР СИМВОЛОВ
+                    else { // НАБОР СИМВОЛОВ
                         char key = 0;
                         if (scancode == 0x1E) key = 'A';
                         else if (scancode == 0x30) key = 'B';
@@ -413,7 +430,6 @@ void kernel_main(void) {
                         }
                     }
                 } else {
-                    // ИСПРАВЛЕНИЕ: Клавиша отпущена в шелле, сбрасываем скан-код
                     last_scancode = 0;
                 }
             }

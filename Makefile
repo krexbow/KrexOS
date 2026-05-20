@@ -16,14 +16,19 @@ kernel.o: src/kernel.c
 ata.o: src/ata.c src/ata.h
 	$(CC) $(CFLAGS) src/ata.c -o ata.o
 
+# Компилируем модуль файловой системы VFS
+fs.o: src/fs.c src/fs.h
+	$(CC) $(CFLAGS) src/fs.c -o fs.o
+
 # Компилируем ассемблерную точку входа
 kernel_entry.o: src/kernel_entry.asm
 	$(ASM) -f win32 src/kernel_entry.asm -o kernel_entry.o
 
 # Линкуем всё вместе БЕЗ ВАРНИНГОВ. 
 # Под Win32 MinGW линкер ТРЕБУЕТ два подчеркивания: __start
-kernel.bin: kernel_entry.o kernel.o ata.o
-	$(LD) -m i386pe -nostdlib --image-base 0 -Ttext 0x1000 -e start kernel_entry.o kernel.o ata.o -o kernel.tmp
+# ДОБАВЛЕН fs.o в цепочку сборки
+kernel.bin: kernel_entry.o kernel.o ata.o fs.o
+	$(LD) -m i386pe -nostdlib --image-base 0 -Ttext 0x1000 -e start kernel_entry.o kernel.o ata.o fs.o -o kernel.tmp
 	$(OBJCOPY) -O binary kernel.tmp kernel.bin
 	cmd /c del kernel.tmp
 
