@@ -160,6 +160,9 @@ void read_line(char* buffer, int max_len, int row, int start_col, int mask_input
                             print_char('_', row, current_col, 0x0A);
                         }
                     }
+                } else {
+                    // ИСПРАВЛЕНИЕ: Если клавиша отпущена, сбрасываем скан-код для возможности повторного ввода
+                    last_scancode = 0;
                 }
             }
         }
@@ -264,7 +267,7 @@ void kernel_main(void) {
                 last_scancode = scancode;
 
                 if (!(scancode & 0x80)) { 
-                    if (scancode == 0x1C) { // ЖЕСТКОЕ НАЖАТИЕ ENTERВ ШЕЛЛЕ
+                    if (scancode == 0x1C) { // НАЖАТИЕ ENTER В ШЕЛЛЕ
                         print_char(' ', terminal_row, cursor_col, 0x07); 
                         command_buffer[cmd_index] = '\0'; 
 
@@ -281,15 +284,22 @@ void kernel_main(void) {
                             if (str_compare(cmd, "HELP")) {
                                 print_string("Available commands:", terminal_row++, 0, 0x0E);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                
                                 print_string("  HELP                 - Show this list", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                
                                 print_string("  CLEAR                - Clear screen", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                
                                 print_string("  WHOAMI               - Show current logged user", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                
                                 print_string("  READSEC [sector]     - Read raw sector data from HDD", terminal_row++, 0, 0x0F);
                                 if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                
                                 print_string("  WRITESEC [sec] [txt] - Write word to custom sector", terminal_row++, 0, 0x0F);
+                                // ИСПРАВЛЕНИЕ: Дополнительная проверка в конце команды HELP
+                                if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
                             } 
                             else if (str_compare(cmd, "CLEAR")) {
                                 clear_screen(); 
@@ -316,17 +326,22 @@ void kernel_main(void) {
                                     print_string("Usage: WRITESEC [sector_num] [word]", terminal_row, 0, 0x0C);
                                 } else {
                                     uint32_t sector = parse_int(arg1);
-                                    for (int i = 0; i < 512; i++) disk_buffer[i] = 0;
-                                    int len = 0;
-                                    while (arg2[len] != '\0' && len < 512) { disk_buffer[len] = arg2[len]; len++; }
-                                    ata_write_sector(sector, disk_buffer);
-                                    terminal_row++;
-                                    if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
-                                    print_string("Success!", terminal_row, 0, 0x0A);
+                                    
+                                    // ИСПРАВЛЕНИЕ: Защита системных секторов (где лежит ядро) от перезаписи
+                                    if (sector < 40) {
+                                        print_string("Error: Sectors 0-39 are protected (System Code)!", terminal_row, 0, 0x0C);
+                                    } else {
+                                        for (int i = 0; i < 512; i++) disk_buffer[i] = 0;
+                                        int len = 0;
+                                        while (arg2[len] != '\0' && len < 512) { disk_buffer[len] = arg2[len]; len++; }
+                                        ata_write_sector(sector, disk_buffer);
+                                        terminal_row++;
+                                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                                        print_string("Success!", terminal_row, 0, 0x0A);
+                                    }
                                 }
                             }
                             else {
-                                // Дефолтный обработчик: если ввели мусор, система не падает!
                                 print_string("Unknown command: ", terminal_row, 0, 0x0C);
                                 print_string(command_buffer, terminal_row, 17, 0x0C);
                             }
@@ -397,6 +412,9 @@ void kernel_main(void) {
                             print_char('_', terminal_row, cursor_col, 0x0A); 
                         }
                     }
+                } else {
+                    // ИСПРАВЛЕНИЕ: Клавиша отпущена в шелле, сбрасываем скан-код
+                    last_scancode = 0;
                 }
             }
         }

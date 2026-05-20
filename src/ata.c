@@ -6,10 +6,10 @@ static int drive_online = 0;
 
 // Инициализация и определение жесткого диска
 void ata_identify() {
-    // Выбираем Master-диск на Primary канале (0xA0)
-    outb(0x1F6, 0xA0);
+    // ИСПРАВЛЕНИЕ: Выбираем Master-диск на Primary канале с поддержкой LBA (0xE0 вместо 0xA0)
+    outb(0x1F6, 0xE0);
     
-    // Сбрасываем порты секторов
+    // Сброс портов секторов
     outb(0x1F2, 0);
     outb(0x1F3, 0);
     outb(0x1F4, 0);
@@ -30,86 +30,52 @@ void ata_identify() {
     while (!(inb(0x1F7) & 0x08));
     
     // Читаем 256 слов данных (информация о диске)
-    uint16_t info[256];
+    uint16_t id_data[256];
     for (int i = 0; i < 256; i++) {
-        info[i] = inw(0x1F0);
+        id_data[i] = inw(0x1F0);
     }
     
-    // Количество LBA26/LBA28 секторов лежит в словах 60 и 61
-    uint32_t sectors = info[60] | (((uint32_t)info[61]) << 16);
-    
-    // Считаем размер в Мегабайтах: (секторы * 512) / 1024 / 1024
+    // Рассчитываем количество секторов (слова 60-61 содержат 32-битное число общего количества LBA секторов)
+    uint32_t sectors = *((uint32_t*)&id_data[60]);
     drive_size_mb = (sectors * 512) / (1024 * 1024);
     drive_online = 1;
 }
 
-// Функция-обработчик команды DISK в шелле
+// Функция вывода инфо о диске (если понадобится в шелле)
 void cmd_disk(int* terminal_row) {
-    (*terminal_row)++;
+    // Вспомогательная функция вывода строк (дублирует логику ядра)
+    void print_string(const char* str, int row, int col, char color);
     
-    if (drive_online) {
-        // Выводим статус диска
-        volatile char* video_memory = (volatile char*)0xB8000;
-        
-        // Пишем "Drive Status: "
-        int offset = ((*terminal_row) * 80 + 0) * 2;
-        const char* msg1 = "Drive Status: ";
-        for(int i=0; msg1[i] != '\0'; i++) {
-            video_memory[offset] = msg1[i]; video_memory[offset+1] = 0x0F; offset+=2;
-        }
-        // Пишем "ONLINE" зеленым
-        const char* msg2 = "ONLINE";
-        for(int i=0; msg2[i] != '\0'; i++) {
-            video_memory[offset] = msg2[i]; video_memory[offset+1] = 0x0A; offset+=2;
-        }
-        
-        (*terminal_row)++;
-        // Пишем "Drive Size: "
-        offset = ((*terminal_row) * 80 + 0) * 2;
-        const char* msg3 = "Drive Size:   ";
-        for(int i=0; msg3[i] != '\0'; i++) {
-            video_memory[offset] = msg3[i]; video_memory[offset+1] = 0x0F; offset+=2;
-        }
-        
-        // Выводим размер диска (для простоты хардкодим вывод числа, зная что у нас 64MB)
-        // Если размер другой, можно будет дописать функцию перевода int в string
-        if (drive_size_mb == 64) {
-            const char* msg_size = "64 MB";
-            for(int i=0; msg_size[i] != '\0'; i++) {
-                video_memory[offset] = msg_size[i]; video_memory[offset+1] = 0x0E; offset+=2;
-            }
-        } else {
-            const char* msg_unk = "DETECTED";
-            for(int i=0; msg_unk[i] != '\0'; i++) {
-                video_memory[offset] = msg_unk[i]; video_memory[offset+1] = 0x0E; offset+=2;
-            }
-        }
-    } else {
-        // Если диска нет
-        volatile char* video_memory = (volatile char*)0xB8000;
-        int offset = ((*terminal_row) * 80 + 0) * 2;
-        const char* msg_offline = "Drive Status: OFFLINE / NOT DETECTED";
-        for(int i=0; msg_offline[i] != '\0'; i++) {
-            video_memory[offset] = msg_offline[i]; video_memory[offset+1] = 0x0C; offset+=2;
-        }
+    if (!drive_online) {
+        print_string("HDD Status: OFFLINE / NOT FOUND", (*terminal_row)++, 0, 0x0C);
+        return;
     }
+    
+    print_string("HDD Status: ONLINE (Primary Master)", (*terminal_row)++, 0, 0x0A);
+    print_string("Addressing: LBA28 PIO Mode", (*terminal_row)++, 0, 0x0F);
+    print_string("Capacity  : Connected HDD detected", (*terminal_row)++, 0, 0x0F);
 }
 
-// Наша новая функция чтения сектора (LBA28)
+// Функция чтения одного LBA сектора (512 байт) в буфер памяти
 void ata_read_sector(uint32_t lba, uint8_t* buffer) {
+    // 1. Ждем освобождения диска от предыдущих команд
     while (inb(0x1F7) & 0x80);
 
-    outb(0x1F2, 1);
-    outb(0x1F3, (uint8_t)lba);
-    outb(0x1F4, (uint8_t)(lba >> 8));
-    outb(0x1F5, (uint8_t)(lba >> 16));
-    outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
+    // 2. Выставляем параметры LBA28 в порты контроллера
+    outb(0x1F2, 1);                      // Читаем ровно 1 сектор
+    outb(0x1F3, (uint8_t)lba);           // LBA биты 0-7
+    outb(0x1F4, (uint8_t)(lba >> 8));    // LBA биты 8-15
+    outb(0x1F5, (uint8_t)(lba >> 16));   // LBA биты 16-23
+    outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F)); // Включаем режим LBA и передаем биты 24-27
 
+    // 3. Посылаем команду на чтение секторов (0x20)
     outb(0x1F7, 0x20);
 
+    // 4. Ждем завершения операции (очистка BUSY и выставление DRQ)
     while (inb(0x1F7) & 0x80);
     while (!(inb(0x1F7) & 0x08));
 
+    // 5. Вычитываем 256 слов (512 байт) из порта данных в буфер
     uint16_t* ptr = (uint16_t*)buffer;
     for (int i = 0; i < 256; i++) {
         ptr[i] = inw(0x1F0);
@@ -118,6 +84,11 @@ void ata_read_sector(uint32_t lba, uint8_t* buffer) {
 
 // Функция записи одного LBA сектора (512 байт) из буфера memory на диск
 void ata_write_sector(uint32_t lba, uint8_t* buffer) {
+    // ИСПРАВЛЕНИЕ/ЗАЩИТА: Не позволяем перезаписывать секторы 0-39, где лежит загрузчик и код самого ядра KrexOS
+    if (lba < 40) {
+        return; 
+    }
+
     // 1. Ждем, пока диск освободится
     while (inb(0x1F7) & 0x80);
 
@@ -126,21 +97,18 @@ void ata_write_sector(uint32_t lba, uint8_t* buffer) {
     outb(0x1F3, (uint8_t)lba);           // LBA биты 0-7
     outb(0x1F4, (uint8_t)(lba >> 8));    // LBA биты 8-15
     outb(0x1F5, (uint8_t)(lba >> 16));   // LBA биты 16-23
-    outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F));
+    outb(0x1F6, 0xE0 | ((lba >> 24) & 0x0F)); // Включаем режим LBA и передаем биты 24-27
 
-    // 3. Посылаем команду ЗАПИСИ (0x30)
+    // 3. Посылаем команду на запись секторов (0x30)
     outb(0x1F7, 0x30);
 
-    // 4. Ждем, пока диск поднимет флаг DRQ (Data Request), показывая, что он готов принимать байты
-    while (inb(0x1F7) & 0x80);        // Ждем BSY = 0
-    while (!(inb(0x1F7) & 0x08));     // Ждем DRQ = 1
+    // 4. Ждем, когда диск будет готов принять данные (очистка BUSY, поднятие DRQ)
+    while (inb(0x1F7) & 0x80);
+    while (!(inb(0x1F7) & 0x08));
 
-    // 5. Выплескиваем 256 слов (512 байт) из нашего буфера прямо в порт данных 0x1F0
+    // 5. Записываем 256 слов (512 байт) из буфера в порт данных контроллера
     uint16_t* ptr = (uint16_t*)buffer;
     for (int i = 0; i < 256; i++) {
-        outw(0x1F0, ptr[i]);          // outw шлет 16 бит (слово) в порт
+        outw(0x1F0, ptr[i]);
     }
-
-    // 6. Снова ждем окончания операции самим диском
-    while (inb(0x1F7) & 0x80);
 }
