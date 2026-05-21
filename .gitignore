@@ -3,3 +3,7 @@
 *.tmp
 .git/
 hd.img
+*.img
+*.iso
+.vscode/
+log.txt

@@ -1,9 +1,10 @@
 [bits 32]
-global __start        ; Два подчеркивания для win32 линкера
-global _start         ; На всякий случай оставляем и одно
-extern _kernel_main   ; Одно подчеркивание перед вашей Си-функцией
 
-__start:
+section .text           
+
+global _start
+extern _kernel_main
+
 _start:
-    call _kernel_main ; Вызываем главную функцию ядра
-    jmp $             ; Если ядро выйдет из цикла, зависаем тут
+    call _kernel_main
+    jmp $

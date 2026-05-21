@@ -1,25 +1,37 @@
 #ifndef FS_H
 #define FS_H
 
-// Ручное объявление типов, чтобы VS Code и GCC никогда не конфликтовали
 typedef unsigned char uint8_t;
 typedef unsigned int  uint32_t;
 
-#define FS_START_SECTOR 1000
-#define MAX_FILES 10
+// Настройки разметки диска
+#define FS_START_SECTOR   1000
+#define BITMAP_SECTOR     1000  // 1 сектор под карту занятых блоков (хватит на 512 секторов)
+#define INODE_START_SEC   1001  // Отсюда начинаются дескрипторы файлов
+#define INODE_SECTORS     10    // 10 секторов * 8 дескрипторов = макс 80 файлов!
+#define DATA_START_SEC    1011  // Отсюда начинаются чистые секторы данных
+#define FS_END_SECTOR     1100  // Конец нашей зоны файловой системы
 
-// Включаем жесткое выравнивание в 1 байт для идеальной укладки структуры в сектор
 #pragma pack(push, 1)
 
+// Дескриптор файла (ровно 64 байта). В один сектор влезает ровно 8 штук
 typedef struct {
-    char name[32];          // Имя файла (до 31 символа + \0)
-    uint32_t size;          // Реальный размер текста в байтах
-    uint8_t data[476];      // Содержимое файла (512 - 32 - 4 = 476 байт)
-} vfs_file_t;
+    char name[24];           // Имя файла (до 23 символов + \0)
+    uint32_t size;           // Общий размер файла в байтах
+    uint32_t start_sector;   // Номер первого сектора с данными на диске (0, если пустой)
+    uint8_t used;            // Флаг: 1 - файл существует, 0 - свободен/удален
+    uint8_t reserved[31];    // Паддинг для выравнивания до 64 байт
+} file_descriptor_t;
+
+// Структура сектора данных (512 байт)
+typedef struct {
+    uint32_t next_sector;    // Номер следующего сектора цепочки (0 - если это конец файла)
+    uint8_t data[508];       // Полезные данные внутри этого сектора
+} data_block_t;
 
 #pragma pack(pop)
 
-// Интерфейс нашей файловой системы
+// Интерфейс файловой системы
 int str_match(const char* s1, const char* s2);
 int fs_create_file(const char* name, const char* content);
 int fs_read_file(const char* name, char* out_buffer);
