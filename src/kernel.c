@@ -31,12 +31,28 @@ void pic_remap(void) {
     outb(PIC2_DATA, 0xFF); // Маскируем всё на ведомом контроллере
 }
 
-// --- СИСТЕМНЫЕ ФУНКЦИИ И ОЧИСТКА ЭКРАНА ---
+// --- СИСТЕМНЫЕ ФУНКЦИИ И РАБОТА С ЭКРАНОМ ---
 void clear_screen(void) {
     volatile char* video_memory = (volatile char*)0xB8000;
     for (int i = 0; i < 80 * 25; i++) {
         video_memory[i * 2] = ' ';
         video_memory[i * 2 + 1] = 0x07;
+    }
+}
+
+// Функция плавного сдвига экрана вверх при переполнении строк
+void scroll(void) {
+    volatile char* video_memory = (volatile char*)0xB8000;
+    
+    // Копируем строки со 2-й по 25-ю (индексы 1-24) на одну строку выше (индексы 0-23)
+    for (int i = 0; i < 24 * 160; i++) {
+        video_memory[i] = video_memory[i + 160];
+    }
+
+    // Затираем самую нижнюю (25-ю) строку пробелами, чтобы она была чистой
+    for (int i = 24 * 160; i < 25 * 160; i += 2) {
+        video_memory[i] = ' ';     
+        video_memory[i + 1] = 0x07; 
     }
 }
 
@@ -119,9 +135,12 @@ static volatile char key_pressed = 0;
 static volatile int enter_triggered = 0;
 
 void fs_print_wrapper(const char* str, int* row) {
+    if (*row >= 25) { 
+        scroll(); 
+        *row = 24; 
+    }
     print_string(str, *row, 0, 0x0F);
     (*row)++;
-    if (*row >= 24) { clear_screen(); *row = 1; }
 }
 
 // --- ФУНКЦИЯ ОБРАБОТКИ ПРЕРЫВАНИЯ КЛАВИАТУРЫ (Вызывается из ASM) ---
@@ -320,7 +339,10 @@ void kernel_main(void) {
                 command_buffer[cmd_index] = '\0'; 
 
                 terminal_row++;
-                if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                if (terminal_row >= 25) { 
+                    scroll(); 
+                    terminal_row = 24; 
+                }
 
                 if (cmd_index > 0) {
                     for(int i = 0; i < 32; i++) { cmd[i] = 0; arg1[i] = 0; }
@@ -330,25 +352,25 @@ void kernel_main(void) {
 
                     if (str_compare(cmd, "HELP")) {
                         print_string("Available commands:", terminal_row++, 0, 0x0E);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
                         
                         print_string("  HELP                 - Show this list", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
                         
                         print_string("  CLEAR                - Clear screen", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
                         
                         print_string("  WHOAMI               - Show current logged user", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  CREATE [name] [text] - Create file with text on VFS", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  CAT [name]           - Display file content", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  DEL [name]           - Delete file from VFS", terminal_row++, 0, 0x0F);
-                        if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  LS                   - List files on drive C", terminal_row, 0, 0x0F);
                     } 
@@ -405,7 +427,10 @@ void kernel_main(void) {
                     terminal_row++;
                 }
                 
-                if (terminal_row >= 24) { clear_screen(); terminal_row = 1; }
+                if (terminal_row >= 25) { 
+                    scroll(); 
+                    terminal_row = 24; 
+                }
                 print_string(registered_user, terminal_row, 0, 0x0A);
                 print_string("# ", terminal_row, user_len, 0x07);
                 cursor_col = prefix_len; 
