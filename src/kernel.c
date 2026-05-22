@@ -270,7 +270,11 @@ void kernel_main(void) {
     
     asm volatile("sti"); // Включаем прерывания обратно. Процессор готов слушать клавиатуру!
 
+    // Находим подключенный жесткий диск
     ata_identify();
+    
+    // Инициализируем/Размечаем файловую систему на жестком диске
+    fs_init();
     
     // ЭКРАН 1: ЗАСТАВКА
     print_string("Welcome to KrexOS v0.0.1!", 10, 26, 0x0A); 
@@ -319,7 +323,7 @@ void kernel_main(void) {
 
     int terminal_row = 3;
     print_string(registered_user, terminal_row, 0, 0x0A); 
-    print_string("# ", terminal_row, user_len, 0x07);       
+    print_string("# ", terminal_row, user_len, 0x07);      
     
     int prefix_len = user_len + 2; 
     int cursor_col = prefix_len;       
@@ -363,13 +367,16 @@ void kernel_main(void) {
                         print_string("  WHOAMI               - Show current logged user", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  CREATE [name] [text] - Create file with text on VFS", terminal_row++, 0, 0x0F);
+                        print_string("  DISK                 - Show connected hardware drive info", terminal_row++, 0, 0x0F);
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                        print_string("  CREATE [name] [text] - Create file with text on HDD", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  CAT [name]           - Display file content", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  DEL [name]           - Delete file from VFS", terminal_row++, 0, 0x0F);
+                        print_string("  DEL [name]           - Delete file from HDD", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  LS                   - List files on drive C", terminal_row, 0, 0x0F);
@@ -381,6 +388,10 @@ void kernel_main(void) {
                     else if (str_compare(cmd, "WHOAMI")) {
                         print_string("Logged in as: ", terminal_row, 0, 0x0B);
                         print_string(registered_user, terminal_row, 14, 0x0F);
+                    }
+                    else if (str_compare(cmd, "DISK")) {
+                        cmd_disk(&terminal_row);
+                        terminal_row--; // Корректируем индекс после вывода функции
                     }
                     else if (str_compare(cmd, "CREATE")) {
                         if (arg1[0] == '\0' || arg2[0] == '\0') {

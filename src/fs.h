@@ -38,4 +38,7 @@ int fs_read_file(const char* name, char* out_buffer);
 int fs_delete_file(const char* name);
 void fs_list_files_internal(int* current_row);
 
+// Инициализация файловой системы (проверка разметки жесткого диска при старте)
+void fs_init(void);
+
 #endif

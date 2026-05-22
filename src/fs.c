@@ -183,6 +183,7 @@ int fs_delete_file(const char* name) {
                     ata_read_sector(current_sector, local_block_buf);
                     data_block_t* block = (data_block_t*)local_block_buf;
                     
+                    // Безопасно сохраняем указатель на следующий сектор перед затиранием
                     uint32_t next = block->next_sector;
                     free_sector(current_sector); // Сбрасываем в 0 в Bitmap
                     current_sector = next;
@@ -223,5 +224,31 @@ void fs_list_files_internal(int* current_row) {
 
     if (count == 0) {
         fs_print_wrapper("(empty)", current_row);
+    }
+}
+
+// 5. Автоматическое форматирование / инициализация сырого диска
+void fs_init(void) {
+    // Читаем самый первый сектор дескрипторов файлов
+    ata_read_sector(INODE_START_SEC, fs_buffer);
+    file_descriptor_t* desc_array = (file_descriptor_t*)fs_buffer;
+    
+    // Проверяем «сырость» диска. Если первый дескриптор полностью нулевой,
+    // значит диск еще ни разу не размечался в нашей ОС.
+    if (desc_array[0].used == 0 && desc_array[0].start_sector == 0 && desc_array[0].name[0] == '\0') {
+        
+        // 1. Очищаем и создаем пустую карту секторов (Bitmap)
+        for (int i = 0; i < 512; i++) {
+            bitmap_buffer[i] = 0;
+        }
+        ata_write_sector(BITMAP_SECTOR, bitmap_buffer);
+        
+        // 2. Очищаем все секторы, зарезервированные под дескрипторы файлов (Inodes)
+        for (int i = 0; i < 512; i++) {
+            fs_buffer[i] = 0;
+        }
+        for (uint32_t sec = INODE_START_SEC; sec < DATA_START_SEC; sec++) {
+            ata_write_sector(sec, fs_buffer);
+        }
     }
 }
