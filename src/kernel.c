@@ -1,6 +1,7 @@
 #include "ata.h"
 #include "fs.h"
-#include "idt.h" // Подключаем заголовок IDT
+#include "idt.h" 
+#include "libc.h" // Подключаем нашу новую библиотеку
 
 // --- НАСТРОЙКА ПОРТОВ PIC КОНТРОЛЛЕРА ---
 #define PIC1_COMMAND 0x20
@@ -457,7 +458,7 @@ void kernel_main(void) {
                     cmd_index--; 
                 }
             }
-            else { // Набор обычных символов
+            else { // Набор обычных symbols
                 if (cursor_col < 79 && cmd_index < 63) {
                     command_buffer[cmd_index] = c;
                     cmd_index++;

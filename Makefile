@@ -22,16 +22,20 @@ fs.o: src/fs.c src/fs.h
 idt.o: src/idt.c src/idt.h
 	$(CC) $(CFLAGS) src/idt.c -o idt.o
 
+# Добавили компиляцию нашей новой библиотеки
+libc.o: src/libc.c src/libc.h
+	$(CC) $(CFLAGS) src/libc.c -o libc.o
+
 idt_asm.o: src/idt_asm.asm
 	$(ASM) -f win32 src/idt_asm.asm -o idt_asm.o
 
 kernel_entry.o: src/kernel_entry.asm
 	$(ASM) -f win32 src/kernel_entry.asm -o kernel_entry.o
 
-# Линковка
-kernel.bin: kernel_entry.o kernel.o ata.o fs.o idt.o idt_asm.o
+# Линковка (добавили libc.o в зависимости и в команду линковщика)
+kernel.bin: kernel_entry.o kernel.o ata.o fs.o idt.o idt_asm.o libc.o
 	$(LD) -m i386pe -nostdlib --image-base 0 -Ttext 0x1000 -e _start \
-	kernel_entry.o kernel.o ata.o fs.o idt.o idt_asm.o -o kernel.tmp
+	kernel_entry.o kernel.o ata.o fs.o idt.o idt_asm.o libc.o -o kernel.tmp
 	$(OBJCOPY) -O binary kernel.tmp kernel.bin
 	cmd /c del kernel.tmp
 
@@ -48,5 +52,6 @@ run: os-image.bin hd.img
 	$(QEMU) -drive file=os-image.bin,format=raw,index=0,media=disk \
 	-drive file=hd.img,format=raw,index=1,media=disk \
 	-boot c -no-reboot -d int -D log.txt
+
 clean:
 	cmd /c del /f /q *.bin *.o *.tmp 2>nul || exit 0

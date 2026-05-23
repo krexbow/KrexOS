@@ -1,6 +1,12 @@
 #include "fs.h"
 #include "ata.h"
 
+// Прототипы функций работы с экраном для расширенного вывода LS
+extern void print_string(const char* str, int row, int col, char color);
+extern void print_int(int num, int row, int col, char color);
+extern void scroll(void);
+extern void fs_print_wrapper(const char* str, int* row);
+
 static uint8_t fs_buffer[512];
 static uint8_t bitmap_buffer[512];
 
@@ -203,9 +209,7 @@ int fs_delete_file(const char* name) {
     return 0;
 }
 
-// 4. Вывод списка файлов для Шелла
-extern void fs_print_wrapper(const char* str, int* row);
-
+// 4. Вывод списка файлов для Шелла (с отображением реального веса в байтах)
 void fs_list_files_internal(int* current_row) {
     fs_print_wrapper("--- Files on Drive C (VFS 2.0 FAT-like) ---", current_row);
     int count = 0;
@@ -216,7 +220,27 @@ void fs_list_files_internal(int* current_row) {
         
         for (int f = 0; f < 8; f++) {
             if (desc_array[f].used && desc_array[f].name[0] != '\0') {
-                fs_print_wrapper(desc_array[f].name, current_row);
+                
+                // Предотвращаем падение за нижний край экрана до вывода
+                if (*current_row >= 25) { 
+                    scroll(); 
+                    *current_row = 24; 
+                }
+
+                // Шаг 1: Печатаем имя файла (Ярко-белый, колонка 0)
+                print_string(desc_array[f].name, *current_row, 0, 0x0F);
+
+                // Шаг 2: Печатаем открывающую скобку (Серый, колонка 20)
+                print_string("  [", *current_row, 20, 0x07);
+
+                // Шаг 3: Выводим реальный размер (Светло-зеленый, колонка 23)
+                print_int(desc_array[f].size, *current_row, 23, 0x0A);
+
+                // Шаг 4: Печатаем закрывающую скобку единицы измерения (Серый, колонка 30)
+                print_string(" bytes]", *current_row, 30, 0x07);
+
+                // Смещаем строку шелла для следующего элемента списка
+                (*current_row)++;
                 count++;
             }
         }
