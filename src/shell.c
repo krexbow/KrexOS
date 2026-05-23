@@ -344,36 +344,7 @@ void shell_start(const char* username) {
                         } else {
                             static char file_view_buf[4096];
                             if (fs_read_file(arg1, file_view_buf)) {
-                                int i = 0;
-                                int cat_col = 0;
-
-                                while (file_view_buf[i] != '\0') {
-                                    char f_char = file_view_buf[i];
-
-                                    if (f_char == '\n') {
-                                        terminal_row++;
-                                        cat_col = 0;
-                                        if (terminal_row >= 25) { 
-                                            scroll(); 
-                                            terminal_row = 24; 
-                                        }
-                                    } 
-                                    else {
-                                        print_char(f_char, terminal_row, cat_col, 0x0F);
-                                        cat_col++;
-                                        
-                                        if (cat_col >= 80) {
-                                            cat_col = 0;
-                                            terminal_row++;
-                                            if (terminal_row >= 25) { 
-                                                scroll(); 
-                                                terminal_row = 24; 
-                                            }
-                                        }
-                                    }
-                                    i++;
-                                }
-                                terminal_row--;
+                                print_string(file_view_buf, terminal_row, 0, 0x0F);
                             } else {
                                 print_string("Error: File not found.", terminal_row, 0, 0x0C);
                             }
