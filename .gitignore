@@ -7,3 +7,5 @@ hd.img
 *.iso
 .vscode/
 log.txt
+project_code.txt
+*.py
