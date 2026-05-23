@@ -77,7 +77,10 @@ void shell_start(const char* username) {
                         print_string("  DISK                 - Show connected hardware drive info", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  CREATE [name] [text] - Create file with text on HDD", terminal_row++, 0, 0x0F);
+                        print_string("  CREATE [name]        - Create file with multi-line text", terminal_row++, 0, 0x0F);
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                        print_string("  EDIT [name]          - Edit existing or new file", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  CAT [name]           - Display file content", terminal_row++, 0, 0x0F);
@@ -101,13 +104,199 @@ void shell_start(const char* username) {
                         terminal_row--; 
                     }
                     else if (str_compare(cmd, "CREATE")) {
-                        if (arg1[0] == '\0' || arg2[0] == '\0') {
-                            print_string("Usage: CREATE [filename] [text]", terminal_row, 0, 0x0C);
+                        if (arg1[0] == '\0') {
+                            print_string("Usage: CREATE [filename]", terminal_row, 0, 0x0C);
                         } else {
-                            if (fs_create_file(arg1, arg2)) {
+                            print_string("Mode: Input text. Type 'END' on a new line to save.", terminal_row++, 0, 0x0E);
+                            if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                            // Буфер в безопасной RAM далеко за пределами ядра
+                            char* big_buffer = (char*)0x50000; 
+                            int big_idx = 0;
+                            int writing = 1;
+
+                            while (writing) {
+                                print_string("> ", terminal_row, 0, 0x0A);
+                                int input_col = 2;
+                                int line_idx = 0;
+                                char local_line[128];
+
+                                print_char('_', terminal_row, input_col, 0x0A);
+
+                                // Захватываем клавиатуру для чтения одной строки текста
+                                while (1) {
+                                    asm volatile("hlt");
+                                    if (key_pressed != 0) {
+                                        char c = key_pressed;
+                                        key_pressed = 0;
+
+                                        if (c == '\n') {
+                                            print_char(' ', terminal_row, input_col, 0x07);
+                                            local_line[line_idx] = '\0';
+                                            terminal_row++;
+                                            if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+                                            break;
+                                        }
+                                        else if (c == '\b') {
+                                            if (input_col > 2) {
+                                                print_char(' ', terminal_row, input_col, 0x07);
+                                                input_col--;
+                                                print_char(' ', terminal_row, input_col, 0x07);
+                                                print_char('_', terminal_row, input_col, 0x0A);
+                                                line_idx--;
+                                            }
+                                        }
+                                        else {
+                                            if (input_col < 79 && line_idx < 126) {
+                                                local_line[line_idx++] = c;
+                                                print_char(c, terminal_row, input_col, 0x0F);
+                                                input_col++;
+                                                print_char('_', terminal_row, input_col, 0x0A);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                // Если ввели "END", то прекращаем запись
+                                if (str_compare(local_line, "END")) {
+                                    writing = 0;
+                                } else {
+                                    // Переносим строку в большой буфер и дописываем \n
+                                    for (int i = 0; local_line[i] != '\0'; i++) {
+                                        big_buffer[big_idx++] = local_line[i];
+                                    }
+                                    big_buffer[big_idx++] = '\n';
+                                }
+                            }
+
+                            big_buffer[big_idx] = '\0'; // Закрываем финальную строку
+
+                            // Кидаем сформированный массив данных в твою цепочную ФС
+                            if (fs_create_file(arg1, big_buffer)) {
                                 print_string("Success: File created!", terminal_row, 0, 0x0A);
                             } else {
                                 print_string("Error: No space or file already exists.", terminal_row, 0, 0x0C);
+                            }
+                        }
+                    }
+                    else if (str_compare(cmd, "EDIT")) {
+                        if (arg1[0] == '\0') {
+                            print_string("Usage: EDIT [filename]", terminal_row, 0, 0x0C);
+                        } else {
+                            char* big_buffer = (char*)0x50000;
+                            int big_idx = 0;
+
+                            // Полностью очищаем буфер перед вычиткой/редактированием
+                            for (int i = 0; i < 4096; i++) big_buffer[i] = 0;
+
+                            // Пытаемся считать старые данные (флаг вернет 1, если файл найден)
+                            int file_exists = fs_read_file(arg1, big_buffer);
+                            
+                            // Вычисляем длину считанного текста, чтобы ставить указатель в конец
+                            while (big_buffer[big_idx] != '\0') {
+                                big_idx++;
+                            }
+
+                            clear_screen();
+                            // Статус-бар в инверсном цвете (0x30 - черный текст на бирюзовом/сером фоне)
+                            print_string("--- KrexOS Text Editor --- File: ", 0, 0, 0x30);
+                            print_string(arg1, 0, 33, 0x30);
+                            print_string(" --- Type 'END' to Save/Exit ---", 0, 33 + 12, 0x30);
+
+                            // Отрисовываем существующее содержимое файла на экране
+                            int terminal_row_edit = 2;
+                            int cat_col = 0;
+                            int i = 0;
+                            while (big_buffer[i] != '\0') {
+                                char f_char = big_buffer[i];
+                                if (f_char == '\n') {
+                                    terminal_row_edit++;
+                                    cat_col = 0;
+                                    if (terminal_row_edit >= 24) { scroll(); terminal_row_edit = 23; }
+                                } else {
+                                    print_char(f_char, terminal_row_edit, cat_col, 0x0F);
+                                    cat_col++;
+                                    if (cat_col >= 80) {
+                                        cat_col = 0;
+                                        terminal_row_edit++;
+                                        if (terminal_row_edit >= 24) { scroll(); terminal_row_edit = 23; }
+                                    }
+                                }
+                                i++;
+                            }
+
+                            // Если файл не пустой и не оканчивался переходом на новую строку — переносим курсор пониже
+                            if (big_idx > 0 && big_buffer[big_idx-1] != '\n') {
+                                terminal_row_edit++;
+                            }
+
+                            int writing = 1;
+                            while (writing) {
+                                print_string("> ", terminal_row_edit, 0, 0x0A);
+                                int input_col = 2;
+                                int line_idx = 0;
+                                char local_line[128];
+
+                                print_char('_', terminal_row_edit, input_col, 0x0A);
+
+                                while (1) {
+                                    asm volatile("hlt");
+                                    if (key_pressed != 0) {
+                                        char c = key_pressed;
+                                        key_pressed = 0;
+
+                                        if (c == '\n') {
+                                            print_char(' ', terminal_row_edit, input_col, 0x07);
+                                            local_line[line_idx] = '\0';
+                                            terminal_row_edit++;
+                                            if (terminal_row_edit >= 24) { scroll(); terminal_row_edit = 23; }
+                                            break;
+                                        }
+                                        else if (c == '\b') {
+                                            if (input_col > 2) {
+                                                print_char(' ', terminal_row_edit, input_col, 0x07);
+                                                input_col--;
+                                                print_char(' ', terminal_row_edit, input_col, 0x07);
+                                                print_char('_', terminal_row_edit, input_col, 0x0A);
+                                                line_idx--;
+                                            }
+                                        }
+                                        else {
+                                            if (input_col < 79 && line_idx < 126) {
+                                                local_line[line_idx++] = c;
+                                                print_char(c, terminal_row_edit, input_col, 0x0F);
+                                                input_col++;
+                                                print_char('_', terminal_row_edit, input_col, 0x0A);
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (str_compare(local_line, "END")) {
+                                    writing = 0;
+                                } else {
+                                    // Конкатенируем строку в конец основного буфера памяти
+                                    for (int j = 0; local_line[j] != '\0'; j++) {
+                                        big_buffer[big_idx++] = local_line[j];
+                                    }
+                                    big_buffer[big_idx++] = '\n';
+                                }
+                            }
+
+                            big_buffer[big_idx] = '\0'; // Гарантируем нуль-терминатор в конце данных
+
+                            // Если файл существовал, удаляем его старую цепочку секторов
+                            if (file_exists) {
+                                fs_delete_file(arg1);
+                            }
+
+                            // Сохраняем итоговые обновленные данные на диск
+                            clear_screen();
+                            terminal_row = 0;
+                            if (fs_create_file(arg1, big_buffer)) {
+                                print_string("Success: File updated and saved!", terminal_row++, 0, 0x0A);
+                            } else {
+                                print_string("Error: Failed to save file.", terminal_row++, 0, 0x0C);
                             }
                         }
                     }
@@ -117,7 +306,36 @@ void shell_start(const char* username) {
                         } else {
                             static char file_view_buf[4096];
                             if (fs_read_file(arg1, file_view_buf)) {
-                                print_string(file_view_buf, terminal_row, 0, 0x0F);
+                                int i = 0;
+                                int cat_col = 0;
+
+                                while (file_view_buf[i] != '\0') {
+                                    char f_char = file_view_buf[i];
+
+                                    if (f_char == '\n') {
+                                        terminal_row++;
+                                        cat_col = 0;
+                                        if (terminal_row >= 25) { 
+                                            scroll(); 
+                                            terminal_row = 24; 
+                                        }
+                                    } 
+                                    else {
+                                        print_char(f_char, terminal_row, cat_col, 0x0F);
+                                        cat_col++;
+                                        
+                                        if (cat_col >= 80) {
+                                            cat_col = 0;
+                                            terminal_row++;
+                                            if (terminal_row >= 25) { 
+                                                scroll(); 
+                                                terminal_row = 24; 
+                                            }
+                                        }
+                                    }
+                                    i++;
+                                }
+                                terminal_row--;
                             } else {
                                 print_string("Error: File not found.", terminal_row, 0, 0x0C);
                             }
