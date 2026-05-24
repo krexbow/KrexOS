@@ -77,7 +77,7 @@ void shell_start(const char* username) {
                         print_string("  DISK                 - Show connected hardware drive info", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  CREATE [name]        - Create file with multi-line text", terminal_row++, 0, 0x0F);
+                        print_string("  CREATE [name]        - Create file with multi-line text (current dir only)", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
                         print_string("  EDIT [name]          - Edit existing or new file", terminal_row++, 0, 0x0F);
@@ -86,10 +86,19 @@ void shell_start(const char* username) {
                         print_string("  CAT [name]           - Display file content", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  DEL [name]           - Delete file from HDD", terminal_row++, 0, 0x0F);
+                        print_string("  DEL [name]           - Delete file from HDD (current dir only)", terminal_row++, 0, 0x0F);
                         if (terminal_row >= 25) { scroll(); terminal_row = 24; }
 
-                        print_string("  LS                   - List files on drive C", terminal_row, 0, 0x0F);
+                        print_string("  MKDIR [name]         - Create a new directory", terminal_row++, 0, 0x0F);
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                        print_string("  RMDIR [name]         - Remove an empty directory", terminal_row++, 0, 0x0F);
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                        print_string("  CD [name]            - Change current directory", terminal_row++, 0, 0x0F);
+                        if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                        print_string("  LS                   - List files and folders", terminal_row, 0, 0x0F);
                     } 
                     else if (str_compare(cmd, "CLEAR")) {
                         clear_screen(); 
@@ -107,75 +116,83 @@ void shell_start(const char* username) {
                         if (arg1[0] == '\0') {
                             print_string("Usage: CREATE [filename]", terminal_row, 0, 0x0C);
                         } else {
-                            print_string("Mode: Input text. Type 'END' on a new line to save.", terminal_row++, 0, 0x0E);
-                            if (terminal_row >= 25) { scroll(); terminal_row = 24; }
-
-                            // Буфер в безопасной RAM далеко за пределами ядра
-                            char* big_buffer = (char*)0x50000; 
-                            int big_idx = 0;
-                            int writing = 1;
-
-                            while (writing) {
-                                print_string("> ", terminal_row, 0, 0x0A);
-                                int input_col = 2;
-                                int line_idx = 0;
-                                char local_line[128];
-
-                                print_char('_', terminal_row, input_col, 0x0A);
-
-                                // Захватываем клавиатуру для чтения одной строки текста
-                                while (1) {
-                                    asm volatile("hlt");
-                                    if (key_pressed != 0) {
-                                        char c = key_pressed;
-                                        key_pressed = 0;
-
-                                        if (c == '\n') {
-                                            print_char(' ', terminal_row, input_col, 0x07);
-                                            local_line[line_idx] = '\0';
-                                            terminal_row++;
-                                            if (terminal_row >= 25) { scroll(); terminal_row = 24; }
-                                            break;
-                                        }
-                                        else if (c == '\b') {
-                                            if (input_col > 2) {
-                                                print_char(' ', terminal_row, input_col, 0x07);
-                                                input_col--;
-                                                print_char(' ', terminal_row, input_col, 0x07);
-                                                print_char('_', terminal_row, input_col, 0x0A);
-                                                line_idx--;
-                                            }
-                                        }
-                                        else {
-                                            if (input_col < 79 && line_idx < 126) {
-                                                local_line[line_idx++] = c;
-                                                print_char(c, terminal_row, input_col, 0x0F);
-                                                input_col++;
-                                                print_char('_', terminal_row, input_col, 0x0A);
-                                            }
-                                        }
-                                    }
-                                }
-
-                                // Если ввели "END", то прекращаем запись
-                                if (str_compare(local_line, "END")) {
-                                    writing = 0;
-                                } else {
-                                    // Переносим строку в большой буфер и дописываем \n
-                                    for (int i = 0; local_line[i] != '\0'; i++) {
-                                        big_buffer[big_idx++] = local_line[i];
-                                    }
-                                    big_buffer[big_idx++] = '\n';
+                            // Проверка: содержит ли имя файла путь (символ '/')
+                            int has_slash = 0;
+                            for (int i = 0; arg1[i] != '\0'; i++) {
+                                if (arg1[i] == '/') {
+                                    has_slash = 1;
+                                    break;
                                 }
                             }
 
-                            big_buffer[big_idx] = '\0'; // Закрываем финальную строку
-
-                            // Кидаем сформированный массив данных в твою цепочную ФС
-                            if (fs_create_file(arg1, big_buffer)) {
-                                print_string("Success: File created!", terminal_row, 0, 0x0A);
+                            if (has_slash) {
+                                print_string("Error: Path not allowed. Create files only in current directory.", terminal_row, 0, 0x0C);
                             } else {
-                                print_string("Error: No space or file already exists.", terminal_row, 0, 0x0C);
+                                print_string("Mode: Input text. Type 'END' on a new line to save.", terminal_row++, 0, 0x0E);
+                                if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+
+                                char* big_buffer = (char*)0x50000; 
+                                int big_idx = 0;
+                                int writing = 1;
+
+                                while (writing) {
+                                    print_string("> ", terminal_row, 0, 0x0A);
+                                    int input_col = 2;
+                                    int line_idx = 0;
+                                    char local_line[128];
+
+                                    print_char('_', terminal_row, input_col, 0x0A);
+
+                                    while (1) {
+                                        asm volatile("hlt");
+                                        if (key_pressed != 0) {
+                                            char c = key_pressed;
+                                            key_pressed = 0;
+
+                                            if (c == '\n') {
+                                                print_char(' ', terminal_row, input_col, 0x07);
+                                                local_line[line_idx] = '\0';
+                                                terminal_row++;
+                                                if (terminal_row >= 25) { scroll(); terminal_row = 24; }
+                                                break;
+                                            }
+                                            else if (c == '\b') {
+                                                if (input_col > 2) {
+                                                    print_char(' ', terminal_row, input_col, 0x07);
+                                                    input_col--;
+                                                    print_char(' ', terminal_row, input_col, 0x07);
+                                                    print_char('_', terminal_row, input_col, 0x0A);
+                                                    line_idx--;
+                                                }
+                                            }
+                                            else {
+                                                if (input_col < 79 && line_idx < 126) {
+                                                    local_line[line_idx++] = c;
+                                                    print_char(c, terminal_row, input_col, 0x0F);
+                                                    input_col++;
+                                                    print_char('_', terminal_row, input_col, 0x0A);
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if (str_compare(local_line, "END")) {
+                                        writing = 0;
+                                    } else {
+                                        for (int i = 0; local_line[i] != '\0'; i++) {
+                                            big_buffer[big_idx++] = local_line[i];
+                                        }
+                                        big_buffer[big_idx++] = '\n';
+                                    }
+                                }
+
+                                big_buffer[big_idx] = '\0';
+
+                                if (fs_create_file(arg1, big_buffer)) {
+                                    print_string("Success: File created!", terminal_row, 0, 0x0A);
+                                } else {
+                                    print_string("Error: No space or file already exists.", terminal_row, 0, 0x0C);
+                                }
                             }
                         }
                     }
@@ -183,29 +200,22 @@ void shell_start(const char* username) {
                         if (arg1[0] == '\0') {
                             print_string("Usage: EDIT [filename]", terminal_row, 0, 0x0C);
                         } else {
-                            // ИСПРАВЛЕНИЕ 1: Изолированный буфер памяти (0x60000 вместо 0x50000), 
-                            // чтобы EDIT не затирал данные команды CREATE
                             char* big_buffer = (char*)0x60000;
                             int big_idx = 0;
 
-                            // Полностью очищаем буфер перед вычиткой
                             for (int i = 0; i < 4096; i++) big_buffer[i] = 0;
 
-                            // Пытаемся считать старые данные
                             int file_exists = fs_read_file(arg1, big_buffer);
                             
-                            // Вычисляем длину считанного текста, чтобы ставить указатель в конец
                             while (big_buffer[big_idx] != '\0') {
                                 big_idx++;
                             }
 
                             clear_screen();
-                            // Статус-бар в инверсном цвете (0x30)
                             print_string("--- KrexOS Text Editor --- File: ", 0, 0, 0x30);
                             print_string(arg1, 0, 33, 0x30);
                             print_string(" --- Press ESC to Save and Exit ---", 0, 33 + 12, 0x30);
 
-                            // Отрисовываем существующее содержимое файла на экране
                             int edit_row = 2;
                             int edit_col = 0;
                             int i = 0;
@@ -227,28 +237,25 @@ void shell_start(const char* username) {
                                 i++;
                             }
 
-                            // Рисуем курсор там, где закончился текст файла
                             print_char('_', edit_row, edit_col, 0x0A);
 
                             int writing = 1;
                             while (writing) {
-                                asm volatile("hlt"); // Ждем прерываний клавиатуры
+                                asm volatile("hlt");
                                 
                                 if (key_pressed != 0) {
                                     char c = key_pressed;
                                     key_pressed = 0;
 
-                                    // ИСПРАВЛЕНИЕ 2: Корректный выход по клавише ESC
                                     if (c == 27) {
-                                        print_char(' ', edit_row, edit_col, 0x07); // Стираем курсор
+                                        print_char(' ', edit_row, edit_col, 0x07);
                                         writing = 0;
                                         break;
                                     }
 
-                                    // Обработка ENTER
                                     if (c == '\n') {
                                         if (big_idx < 4094) {
-                                            print_char(' ', edit_row, edit_col, 0x07); // Убираем старый курсор
+                                            print_char(' ', edit_row, edit_col, 0x07);
                                             big_buffer[big_idx++] = '\n';
                                             
                                             edit_row++;
@@ -260,21 +267,17 @@ void shell_start(const char* username) {
                                                 print_string(arg1, 0, 33, 0x30);
                                                 print_string(" --- Press ESC to Save and Exit ---", 0, 33 + 12, 0x30);
                                             }
-                                            print_char('_', edit_row, edit_col, 0x0A); // Новый курсор
+                                            print_char('_', edit_row, edit_col, 0x0A);
                                         }
                                     }
-                                    // ИСПРАВЛЕНИЕ 3: Переработанный, умный BACKSPACE
                                     else if (c == '\b') {
                                         if (big_idx > 0) {
-                                            print_char(' ', edit_row, edit_col, 0x07); // Убираем курсор
+                                            print_char(' ', edit_row, edit_col, 0x07);
                                             
-                                            // Если удаляем перевод строки, возвращаем курсор наверх
                                             if (big_buffer[big_idx - 1] == '\n') {
                                                 big_idx--;
                                                 if (edit_row > 2) {
                                                     edit_row--;
-                                                    
-                                                    // Считаем положение курсора на предыдущей строке
                                                     int temp_idx = big_idx - 1;
                                                     int col_count = 0;
                                                     while (temp_idx >= 0 && big_buffer[temp_idx] != '\n') {
@@ -284,20 +287,18 @@ void shell_start(const char* username) {
                                                     edit_col = col_count % 80;
                                                 }
                                             } else {
-                                                big_idx--; // Стираем символ из буфера памяти
+                                                big_idx--;
                                                 if (edit_col > 0) {
                                                     edit_col--;
                                                 } else if (edit_row > 2) {
-                                                    // Если стираем начало строки, которая перенеслась автоматически
                                                     edit_row--;
                                                     edit_col = 79;
                                                 }
                                             }
-                                            print_char(' ', edit_row, edit_col, 0x07); // Стираем символ с экрана
-                                            print_char('_', edit_row, edit_col, 0x0A); // Ставим курсор на новую позицию
+                                            print_char(' ', edit_row, edit_col, 0x07);
+                                            print_char('_', edit_row, edit_col, 0x0A);
                                         }
                                     }
-                                    // Обычные печатные символы
                                     else {
                                         if (edit_col < 79 && big_idx < 4094) {
                                             big_buffer[big_idx++] = c;
@@ -305,7 +306,6 @@ void shell_start(const char* username) {
                                             edit_col++;
                                             print_char('_', edit_row, edit_col, 0x0A); 
                                         }
-                                        // Автоперенос строки на экране при достижении правого края (80 символов)
                                         else if (edit_col >= 79 && big_idx < 4094) {
                                             big_buffer[big_idx++] = c;
                                             print_char(c, edit_row, edit_col, 0x0F);
@@ -326,7 +326,6 @@ void shell_start(const char* username) {
                             }
                             big_buffer[big_idx] = '\0';
 
-                            // Сохранение: удаляем старый дескриптор и пишем новый файл
                             fs_delete_file(arg1);
                             clear_screen();
                             terminal_row = 1;
@@ -354,13 +353,68 @@ void shell_start(const char* username) {
                         if (arg1[0] == '\0') {
                             print_string("Usage: DEL [filename]", terminal_row, 0, 0x0C);
                         } else {
-                            if (fs_delete_file(arg1)) {
-                                print_string("Success: File deleted.", terminal_row, 0, 0x0A);
+                            // Проверка: содержит ли имя файла путь (символ '/')
+                            int has_slash = 0;
+                            for (int i = 0; arg1[i] != '\0'; i++) {
+                                if (arg1[i] == '/') {
+                                    has_slash = 1;
+                                    break;
+                                }
+                            }
+
+                            if (has_slash) {
+                                print_string("Error: Path not allowed. Delete files only from current directory.", terminal_row, 0, 0x0C);
                             } else {
-                                print_string("Error: File not found.", terminal_row, 0, 0x0C);
+                                if (fs_delete_file(arg1)) {
+                                    print_string("Success: File deleted.", terminal_row, 0, 0x0A);
+                                } else {
+                                    print_string("Error: File not found.", terminal_row, 0, 0x0C);
+                                }
                             }
                         }
                     }
+                    // НОВАЯ КОМАНДА: MKDIR
+                    else if (str_compare(cmd, "MKDIR")) {
+                        if (arg1[0] == '\0') {
+                            print_string("Usage: MKDIR [dirname]", terminal_row, 0, 0x0C);
+                        } else {
+                            if (fs_mkdir(arg1)) {
+                                print_string("Success: Directory created.", terminal_row, 0, 0x0A);
+                            } else {
+                                print_string("Error: Cannot create directory.", terminal_row, 0, 0x0C);
+                            }
+                        }
+                    }
+                    // НОВАЯ КОМАНДА: RMDIR
+                    else if (str_compare(cmd, "RMDIR")) {
+                        if (arg1[0] == '\0') {
+                            print_string("Usage: RMDIR [dirname]", terminal_row, 0, 0x0C);
+                        } else {
+                            if (fs_rmdir(arg1)) {
+                                print_string("Success: Directory removed.", terminal_row, 0, 0x0A);
+                            } else {
+                                print_string("Error: Directory not found or not empty.", terminal_row, 0, 0x0C);
+                            }
+                        }
+                    }
+                    // НОВАЯ КОМАНДА: CD
+                    else if (str_compare(cmd, "CD")) {
+                        if (arg1[0] == '\0') {
+                            print_string("Usage: CD [dirname]", terminal_row, 0, 0x0C);
+                        } else if (str_compare(arg1, "..")) {
+                            if (fs_cd("..")) {
+                            } else {
+                                print_string("Error: Already at root or CD .. not supported by FS.", terminal_row, 0, 0x0C);
+                            }
+                        } else {
+                            if (fs_cd(arg1)) {
+                            } else {
+                                print_string("Error: Directory not found.", terminal_row, 0, 0x0C);
+                            }
+                        }
+                    }
+
+                            
                     else if (str_compare(cmd, "LS")) {
                         fs_list_files_internal(&terminal_row);
                         terminal_row--; 

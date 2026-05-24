@@ -81,6 +81,7 @@ void keyboard_handler_main(void) {
                 else if (scancode == 0x0A) key = '9';
                 else if (scancode == 0x0B) key = '0';
                 else if (scancode == 0x01) key = '\x1B';
+                else if (scancode == 0x34) key = '.';
 
                 if (key != 0) {
                     key_pressed = key;
